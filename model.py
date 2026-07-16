@@ -58,6 +58,12 @@ class Residual(nn.Module):
         invariants:
             - self.fn is set once
             - Residual owns no parameters, it wraps fn
+
+        - run Residual(fn), and
+          the output is a torch.Tensor that represents
+          the changes between x and fn(x).
+          whatever you converted x into, this class will
+          give you the residual difference
         """
         super().__init__()
         self.fn: nn.Module = fn
@@ -77,3 +83,37 @@ class Residual(nn.Module):
             - pure
         """
         return cast(torch.Tensor, self.fn(x, *args, **kwargs) + x)
+
+def Upsample(dim: int, dim_out: int | None = None) -> nn.Sequential:
+    """
+    preconditions:
+        - dim is the input channel count, > 0
+        - dim_out is the output channel count, if you want
+        - not specifying dim_out causes dim channels to be kept
+    postconditions:
+        - returns nn.Sequential that doubles H and W using nearest neighbor
+        - converts dim -> dim_out unless you didn't specify it
+    """
+    return nn.Sequential(
+        nn.Upsample(scale_factor=2, mode="nearest"),
+        nn.Conv2d(dim, default(dim_out, dim), 3, padding=1),
+    )
+
+def Downsample(dim: int, dim_out: int | None = None) -> nn.Sequential:
+    """
+    preconditions:
+        - dim is the input channel count > 0
+        - input the tensor's height and width
+          at when you called this, both must be even
+          so i can halve it easily
+        - dim_out could be specified if you want
+    postconditions:
+        - returns nn.Sequential that halves height and width
+        - 2x2 blocks of height and width are moved into channels,
+          and those channels are then converted to dim_out or
+          dim if you didn't specify dim_out
+    """
+    return nn.Sequential(
+        Rearrange("b c (h p1) (w p2) -> b (c p1 p2) h w", p1=2, p2=2),
+        nn.Conv2d(dim * 4, default(dim_out, dim), 1),
+    )
