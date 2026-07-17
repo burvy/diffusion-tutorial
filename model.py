@@ -117,3 +117,17 @@ def Downsample(dim: int, dim_out: int | None = None) -> nn.Sequential:
         Rearrange("b c (h p1) (w p2) -> b (c p1 p2) h w", p1=2, p2=2),
         nn.Conv2d(dim * 4, default(dim_out, dim), 1),
     )
+
+class SinusoidalPositionEmbeddings(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, time):
+        device = time.device
+        half_dim = self.dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -1 * embeddings)
+        embeddings = time[: None] * embeddings[None, :]
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim = -1)
+        return embeddings
