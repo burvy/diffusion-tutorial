@@ -119,15 +119,32 @@ def Downsample(dim: int, dim_out: int | None = None) -> nn.Sequential:
     )
 
 class SinusoidalPositionEmbeddings(nn.Module):
-    def __init__(self, dim):
+    """
+    Encodes a scalar timestep `t` into a vector with length `dim`
+    See `README.md` - Sinusoidal Position Embeddings
+    """
+    def __init__(self, dim: int) -> None:
+        """
+        preconditions:
+            - dim must be even and 4 or above
+        postconditions:
+            - self.dim holds dim for `forward()` to call
+        """
         super().__init__()
-        self.dim = dim
+        assert dim >= 4 and dim % 2 == 0, "dim must be greater than 4 and even"
+        self.dim: int = dim
 
-    def forward(self, time):
+    def forward(self, time: torch.Tensor) -> torch.Tensor:
+        """
+        preconditions:
+            - time is a 1d tensor (just the number), and there is 1 timestep per batch
+        postconditions:
+            - returns a tensor with shape (batch, dim), half are sin, half are cos,
+              frequency is spaced by log per channel
+        """
         device = time.device
         half_dim = self.dim // 2
-        embeddings = math.log(10000) / (half_dim - 1)
-        embeddings = torch.exp(torch.arange(half_dim, device=device) * -1 * embeddings)
-        embeddings = time[: None] * embeddings[None, :]
-        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim = -1)
-        return embeddings
+        freq_scale = math.log(10000) / (half_dim - 1)
+        frequencies = torch.exp(torch.arange(half_dim, device=device) * -1 * freq_scale)
+        angles = time[:, None] * frequencies[None, :]
+        return torch.cat((angles.sin(), angles.cos()), dim = -1)
