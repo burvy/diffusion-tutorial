@@ -58,10 +58,6 @@ class Residual(nn.Module):
         invariants:
             - self.fn is set once
             - Residual owns no parameters, it wraps fn
-
-        - run Residual(fn), and
-          the output is a torch.Tensor that represents
-          the changes between x and fn(x).
           whatever you converted x into, this class will
           give you the data with the residual applied
         """
