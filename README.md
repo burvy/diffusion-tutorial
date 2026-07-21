@@ -1,5 +1,5 @@
 # Diffusion Model
-A diffusion model following (this)[https://huggingface.co/blog/annotated-diffusion] huggingface blog post 
+A diffusion model following [this](https://huggingface.co/blog/annotated-diffusion) huggingface blog post 
 written by a native Rust programmer who is being forced to write Python.
 
 # Walkthrough:
@@ -20,7 +20,7 @@ the change must map cleanly on top of the original input.
 Overall: `x` is data in, `fn(x)` is the change applied, `fn(x) + x` is the data out
 
 ## Sinusoidal Position Embeddings
-(This)[https://www.youtube.com/watch?v=dWkm4nFikgM] video offers a good explanation.  
+[This](https://www.youtube.com/watch?v=dWkm4nFikgM) video offers a good explanation.  
 Generally, we will use this to encode the timesteps. Remember, we have one model for all our timesteps, 
 not 1 model for each particular transition.  
 The same weights have to work for both ends of the noising scale, from barely noisy to almost pure noise  

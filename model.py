@@ -63,7 +63,7 @@ class Residual(nn.Module):
           the output is a torch.Tensor that represents
           the changes between x and fn(x).
           whatever you converted x into, this class will
-          give you the residual difference
+          give you the data with the residual applied
         """
         super().__init__()
         self.fn: nn.Module = fn
@@ -134,13 +134,14 @@ class SinusoidalPositionEmbeddings(nn.Module):
         assert dim >= 4 and dim % 2 == 0, "dim must be greater than 4 and even"
         self.dim: int = dim
 
+    @override
     def forward(self, time: torch.Tensor) -> torch.Tensor:
         """
         preconditions:
-            - time is a 1d tensor (just the number), and there is 1 timestep per batch
+            - time is a 1d tensor (just the number), and there is 1 timestep per item in batch
         postconditions:
             - returns a tensor with shape (batch, dim), half are sin, half are cos,
-              frequency is spaced by log per channel
+              frequency is spaced geometrically per channel
         """
         device = time.device
         half_dim = self.dim // 2
