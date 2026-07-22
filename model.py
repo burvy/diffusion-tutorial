@@ -4,7 +4,7 @@ from typing import Callable, TypeGuard, TypeVar, cast, override
 
 import torch
 import torch.nn.functional as F
-from einops import rearrange, reduce
+from einops import rearrange, reduce  # pyright: ignore[reportUnknownVariableType]
 from einops.layers.torch import Rearrange
 from torch import nn
 
