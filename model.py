@@ -145,9 +145,23 @@ class SinusoidalPositionEmbeddings(nn.Module):
         return torch.cat((angles.sin(), angles.cos()), dim = -1)
 
 class WeightStandardizedConv2d(nn.Conv2d): # subclasses nn.Conv2d
+    """
+    Conv2d has a normalized kernel (0 mean 1 variance)
+    weight standardization pairs well with groupnorm to stabilize training
+    especially for small batch sizes
+    """
     @override
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        eps = 1e-5 if input.dtype == torch.float32 else 1e-3 # prevents division by zero
+        """
+        preconditions:
+            input is shaped like (batch, in_channels, H, W)
+            in_channels is like this layer's channels
+        postconditions:
+            returns the normal Conv2d output but computed against
+            a normalized copy of self.weight, leaving self.weight
+            untouched
+        """
+        eps = 1e-5 if input.dtype == torch.float32 else 1e-3 # no /0, f16 needs looser eps
         weight = self.weight
         # o (output axis) ... (all other axes) o 1 1 1 (collapse everything except o)
         mean = reduce(weight, "o ... -> o 1 1 1", "mean")
@@ -160,41 +174,90 @@ class WeightStandardizedConv2d(nn.Conv2d): # subclasses nn.Conv2d
         )
 
 class Block(nn.Module):
+    """
+    WeightStandardizedConv2d -> GroupNorm -> FiLM scale/shift -> SiLU
+    ResnetBlock stacks this twice per resolution
+    """
     def __init__(self, dim: int, dim_out: int, groups: int = 8) -> None:
+        """
+        preconditions:
+            dim, dim_out are positive counts of channels
+            groups divides dim_out evenly (nn.GroupNorm checks this)
+        postconditions:
+            self.proj: dim -> dim_out, 3x3, padding=1 (preserves H, W)
+            self.norm: GroupNorm over dim_out channels
+            self.act: SiLU
+        """
         super().__init__()
-        self.proj = WeightStandardizedConv2d(dim, dim_out, 3, padding=1)
-        self.norm = nn.GroupNorm(groups, dim_out)
-        self.act = nn.SiLU() # x * sigmoid(x), looks like ReLU kind of but smooth
+        self.proj: WeightStandardizedConv2d = WeightStandardizedConv2d(dim, dim_out, 3, padding=1)
+        self.norm: nn.GroupNorm = nn.GroupNorm(groups, dim_out)
+        self.act: nn.SiLU = nn.SiLU() # x * sigmoid(x), looks like ReLU kind of but smooth
 
     @override
     def forward(self, x: torch.Tensor, scale_shift: tuple[torch.Tensor, torch.Tensor] | None = None) -> torch.Tensor:
-        x = self.proj(x)
-        x = self.norm(x)
+        """
+        preconditions:
+            x is shaped (batch, dim, H, W)
+            scale_shift is a (scale, shift) pair applicable against x
+            after projection (batch, dim_out, 1, 1)
+            it is FiLM
+        postconditions:
+            returns shape (batch, dim_out, H, W)
+            x isn't mutated in place
+        """
+        x = cast(torch.Tensor, self.proj(x))
+        x = cast(torch.Tensor, self.norm(x))
         if exists(scale_shift):
             scale, shift = scale_shift
             x = x * (scale + 1) + shift
-        x = self.act(x)
+        x = cast(torch.Tensor, self.act(x))
         return x
 
 class ResnetBlock(nn.Module):
+    """
+    2 blocks and residual connection
+    read the README to learn about Residual
+    dim and dim_out can differ so res_conv converts them to be legal
+    """
     # the * makes time_emb_dim and groups keywords only, so you need to write
     # ResnetBlock(64, 128, time_emb_dim=32) so theres less bugs
     def __init__(self, dim: int, dim_out: int, *, time_emb_dim: int | None = None, groups: int = 8) -> None:
+        """
+        preconditions:
+            dim, dim_out are positive counting channels
+            time_emb_dim matches the last dim of the time embedding tensor forward() recieves
+        postconditions: SiLU -> Linear(time_emb_dim, dim_out * 2)
+        None if there is no conditioning
+        self.block1: dim -> dim_out
+        self.block2: dim_out -> dim_out
+        self.res_conv: Identity if dim is dim_out, 1x1 conv when dim becomes dim_out
+        keeps h + self.res_conv(x) legal
+        """
         super().__init__()
-        self.mlp = ( # produces FiLM parameters
+        self.mlp: nn.Sequential | None = ( # produces FiLM parameters
             # maps time embedding to dim_out * 2, scale and shift for each channel
             # bridge from sinusoidal position embeddings
             nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim_out * 2))
             if exists(time_emb_dim) else None
         )
-        self.block1 = Block(dim, dim_out, groups=groups)
-        self.block2 = Block(dim_out, dim_out, groups=groups)
-        self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
+        self.block1: Block = Block(dim, dim_out, groups=groups)
+        self.block2: Block = Block(dim_out, dim_out, groups=groups)
+        self.res_conv: nn.Conv2d | nn.Identity = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
+    @override
     def forward(self, x: torch.Tensor, time_emb: torch.Tensor) -> torch.Tensor:
+        """
+        preconditions:
+            x is shaped (batch, dim, H, W)
+            time_emb is None if self.mlp is None
+            otherwise, time_emb is shape (batch, time_emb_dim) matching self.mlp
+        postconditions:
+            returns a shape (batch, dim_out, H, W)
+            block1 receives conditioning if present
+        """
         scale_shift = None
         if exists(self.mlp) and exists(time_emb):
-            time_emb = self.mlp(time_emb)
+            time_emb = self.mlp(time_emb)  # pyright: ignore[reportAny]
             # trailing 1s stretches to match, determines what features mean
             time_emb = rearrange(time_emb, "b c -> b c 1 1")
             # chunk splits fat channel into 2 tensors of batch, dim, 1, 1
@@ -202,11 +265,11 @@ class ResnetBlock(nn.Module):
             scale_shift = time_emb.chunk(2, dim=1)
 
         # block1 receives conditioning
-        h = self.block1(x, scale_shift=scale_shift)
-        # block2 does not recieve conditioning, but one injection per block is enough
-        h = self.block2(h)
+        h: torch.Tensor = cast(torch.Tensor, self.block1(x, scale_shift=scale_shift))
+        # blcok2 doesnt need conditioning
+        h = cast(torch.Tensor, self.block2(h))
         # residual connection
-        return h + self.res_conv(x)
+        return h + cast(torch.Tensor, self.res_conv(x))
         # this isn't wrapped in Residual because the channel count changes, x has dim, h has dim out
         # you can't add tensors that have different shapes, so res_conv is 1x1 that projects x from dim
         # to dim out so adding is legal
