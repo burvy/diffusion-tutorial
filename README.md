@@ -45,3 +45,51 @@ together gives you the exact time of day.
 
 Of course, we will be using sine and cosine. Their property of being bounded between -1 and 1 
 makes them naturally scaled well.
+
+## ResNet
+ResNet, or Residual Network is a deep learning architecture that solves the "degradation problem", 
+the phenomenon that causes neural networks to lose accuracy when too many layers are trained on. 
+When networks get too deep, the gradients stack onto each other and the gradient might explode or 
+shrink to nothing.
+
+Normalization helps by resetting the scale, and this is done by the standardization operation:
+normalized = (value - mean) / stddev
+Subtracting the mean centers it on 0, dividing by the standard deviation forces it to have a spread of 1
+Whatever is inputted now has a mean of 0 and a variance of 1, which forces numbers to stay close to 0
+
+## GroupNorm VS BatchNorm
+Normalization as explained before is a technique that scales and centers data as it passes through 
+a neural network. It stabilizes gradients and helps with training.
+
+Batch Normalization normalizes features across the whole batch, creating one mean/stddev, 
+and is the default for most Convolutional Neural Networks (neural networks designed to
+process grid-like data like images and video).  
+However, in our case, it is not applicable because:
+1. All the images are coupled together
+- This makes it so generating causes the output to be just one normalized sample
+2. It works poorly with small batches
+- Normalizing a few images with high noise between gets you mostly junk
+3. Training mismatches with Eval
+- During training, the neural network gets the whole batch to work with, 
+  but it only gets a running average that was computed during training when 
+  it comes to evaluation
+
+GroupNorm sidesteps these issues by averaging in a single image, splitting channels across a group of channels into some groups, each group getting their own mean/stddev and computed from the values of the image.  
+
+## Weight Standardization
+Standard normalization normalizes the input data while weight standardization normalizes the weights  
+Before each forward pass, the convolution kernel is restandardized to 0 mean 1 variance.
+
+The Convolution Kernel is a small matrix of weights that maps an image onto some output
+
+Anyway, weight standardization and groupnorm match or beat batchnorm without batchnorm's disadvantages, even if groupnorm usually underperforms batchnorm
+
+## Feature wise Linear Modulation (FiLM)
+We have positional embeddings for time, but it should influence image processing by controlling the scale and shift of each channel by this:
+`x = x * (scale + 1) + shift`
+scale and shift are computed from the time embedding, with 1 pair per channel, allowing the timestep to control the "weight" and "bias" of each feature, which is FiLM.
+
+we multiply by `scale + 1` instead of `scale` because `scale` can be 0.
+
+We do FiLM right after norm because normalization just erased all the mean and scale information, because thats its job.  
+FiLM re-adds that scale and shift the timestep wants, and determines which features fire
