@@ -1,14 +1,12 @@
 import math
-from inspect import isfunction
 from functools import partial
+from typing import Callable, TypeGuard, TypeVar, cast, override
 
 import torch
-from torch import nn
 import torch.nn.functional as F
 from einops import rearrange, reduce
 from einops.layers.torch import Rearrange
-
-from typing import TypeVar, TypeGuard, Callable, cast, override
+from torch import nn
 
 T = TypeVar("T")
 
@@ -145,3 +143,71 @@ class SinusoidalPositionEmbeddings(nn.Module):
         frequencies = torch.exp(torch.arange(half_dim, device=device) * -1 * freq_scale)
         angles = time[:, None] * frequencies[None, :]
         return torch.cat((angles.sin(), angles.cos()), dim = -1)
+
+class WeightStandardizedConv2d(nn.Conv2d): # subclasses nn.Conv2d
+    @override
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        eps = 1e-5 if input.dtype == torch.float32 else 1e-3 # prevents division by zero
+        weight = self.weight
+        # o (output axis) ... (all other axes) o 1 1 1 (collapse everything except o)
+        mean = reduce(weight, "o ... -> o 1 1 1", "mean")
+        # we arent estimating anything since we have all the weights, so unbiased=False
+        var = reduce(weight, "o ... -> o 1 1 1", partial(torch.var, unbiased=False))
+        normalized_weight = (weight - mean) * (var + eps).rsqrt() # 1 / sqrt(x)
+        return F.conv2d( # parent's forward would use raw self.weight but we want normalized
+            input, normalized_weight, self.bias, self.stride,
+            self.padding, self.dilation, self.groups,
+        )
+
+class Block(nn.Module):
+    def __init__(self, dim: int, dim_out: int, groups: int = 8) -> None:
+        super().__init__()
+        self.proj = WeightStandardizedConv2d(dim, dim_out, 3, padding=1)
+        self.norm = nn.GroupNorm(groups, dim_out)
+        self.act = nn.SiLU() # x * sigmoid(x), looks like ReLU kind of but smooth
+
+    @override
+    def forward(self, x: torch.Tensor, scale_shift: tuple[torch.Tensor, torch.Tensor] | None = None) -> torch.Tensor:
+        x = self.proj(x)
+        x = self.norm(x)
+        if exists(scale_shift):
+            scale, shift = scale_shift
+            x = x * (scale + 1) + shift
+        x = self.act(x)
+        return x
+
+class ResnetBlock(nn.Module):
+    # the * makes time_emb_dim and groups keywords only, so you need to write
+    # ResnetBlock(64, 128, time_emb_dim=32) so theres less bugs
+    def __init__(self, dim: int, dim_out: int, *, time_emb_dim: int | None = None, groups: int = 8) -> None:
+        super().__init__()
+        self.mlp = ( # produces FiLM parameters
+            # maps time embedding to dim_out * 2, scale and shift for each channel
+            # bridge from sinusoidal position embeddings
+            nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim_out * 2))
+            if exists(time_emb_dim) else None
+        )
+        self.block1 = Block(dim, dim_out, groups=groups)
+        self.block2 = Block(dim_out, dim_out, groups=groups)
+        self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
+
+    def forward(self, x: torch.Tensor, time_emb: torch.Tensor) -> torch.Tensor:
+        scale_shift = None
+        if exists(self.mlp) and exists(time_emb):
+            time_emb = self.mlp(time_emb)
+            # trailing 1s stretches to match, determines what features mean
+            time_emb = rearrange(time_emb, "b c -> b c 1 1")
+            # chunk splits fat channel into 2 tensors of batch, dim, 1, 1
+            # that is our scale and shift
+            scale_shift = time_emb.chunk(2, dim=1)
+
+        # block1 receives conditioning
+        h = self.block1(x, scale_shift=scale_shift)
+        # block2 does not recieve conditioning, but one injection per block is enough
+        h = self.block2(h)
+        # residual connection
+        return h + self.res_conv(x)
+        # this isn't wrapped in Residual because the channel count changes, x has dim, h has dim out
+        # you can't add tensors that have different shapes, so res_conv is 1x1 that projects x from dim
+        # to dim out so adding is legal
+        # when dims match, it is an `nn.Identity()` a layer that returns its input untouched
