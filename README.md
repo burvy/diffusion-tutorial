@@ -8,7 +8,9 @@ In diffusion, we add noise to an image, then we ask a computer to denoise it for
 Forward Process: Take a real image from a real dataset, add a little Gaussian noise, repeat a few hundred times 
 until it becomes pure noise.  
 Reverse Process: Train a neural network to look at a noisy image and guess what noise was added. We can subtract the noise until the static turns back into an image that could reasonably fit in our real dataset.  
-This network is a [U-Net](https://www.geeksforgeeks.org/machine-learning/u-net-architecture-explained/).
+This network is a [U-Net](https://www.geeksforgeeks.org/machine-learning/u-net-architecture-explained/).  
+The U-Net takes two inputs - the noisy image at timestep `t`, and the noisy image `x_t` at timestep `t`. The network only denoises a bit at a time, it's way easier to denoise out a tiny difference from `x_t` to `x_(t-1)` than just going from `x_T` (pure noise) to `x_0` (input data).
+
 
 ## U-Net
 From the linked article, here is a brief sumamry:  
@@ -43,6 +45,15 @@ of contraction and expansion.
 convolutional layers to add detail back into the image. During this process, the image is compared against 
 the corresponding contraction images (before contraction), trying to get close to what it was 
 
+## Convolution
+Our `Block` uses a 3x3 convolution. Each output pixel is computed from a 3x3 matrix "neighborhood" of 
+the input image. It is local, it must be - with 3x3 neighborhoods stacked next to each other, one at 
+the top left has very little to no information about the neighborhood in the bottom right. Conversely, 
+the 3x3 neighborhood that overlaps the 3x3 matrix in the top left corner knows 6 out of the 9 pixels of 
+that neighborhood. Note that I am using "matrix" and "neighborhood" interchangedly, but I will start using 
+"matrix" more.
+
+As continuation, reference [Attention](#attention)
 
 # Walkthrough:
 
@@ -135,3 +146,63 @@ we multiply by `scale + 1` instead of `scale` because `scale` can be 0.
 
 We do FiLM right after norm because normalization just erased all the mean and scale information, because thats its job.  
 FiLM re-adds that scale and shift the timestep wants, and determines which features fire
+
+## Attention
+For background, see [Convolution](#convolution).  
+
+In this example, we are following Annotated Diffusion and denoising shirts. Locality doesn't do us favors here.  
+Imagine a shirt is coming out to be turquoise on one sleeve. It should be turquoise on the other sleeve, but the 
+sleeves are like 20 pixels apart. There is no way the locality of raw convolution can 
+carry information that far.  
+
+This is what Attention is for, it lets every position talk to every other position through something like 
+a search engine:  
+Query, Key, Value.
+
+The analogy of a search engine actually is quite accurate.  
+**Query** is what the position/pixel is looking for.  
+**Key** is what the pixel says about itself.  
+**Value** is what each pixel hands over if you believe its Key.
+
+For example, a pixel on the left sleeve edge *queries*, "I am a sleeve edge, where is the rest of the shirt"?  
+This right sleeve pixel also *says*: "I am a turquoise sleeve edge"
+It then hands over some information, due to the fact that it is a turquoise sleeve edge.
+It's like a map/dictionary.
+
+Each pixel produces a query, key and value. For each pixel, compare the key to the query, 
+and this outputs a *relevance score*, which is turned into weights. Then a weighted average is taken 
+of all the pixels' scores. Pixels with high relevance contribute more than those with low relevance.
+
+Q, K, V aren't all as abstract as "i'm a sleeve edge" and "where's the rest of the shirt?", but 
+rather just linear projections of the same input `x`. The network learns 3 different "views" of each 
+pixel, but what makes it work is that they're different. Q is likely not V, K is likely not V.  
+
+To compare how relevant 2 vectors are, we use a dot product. Dot products literally compare how similar 
+two vectors are, so it works here. If two vectors point in the same direction, the output is positive and big. 
+
+When this is done for each Q and K pair, the output is a matrix with shape **N**x**N**, where row `i`, column `j` 
+gives information about how much pixel `i` should care about pixel `j`.
+
+### Softmax
+The raw scores are arbitrary numbers, and to convert them into weights we need something that is positive and sums to 1. 
+
+The [Softmax](https://www.singlestore.com/blog/a-guide-to-softmax-activation-function/) function can do this 
+for us.  
+It in short keeps everything positive and bounded between 0 and 1.  
+
+if you input a vector of numbers, softmax them (requires the sum of the numbers in the function itself), 
+you will get a vector where summing everything gives you 1.
+
+### sqrt(d)
+Before inputting into Softmax, we have to divide by a `sqrt(d)`. This comes down to what Softmax is, it is 
+`max()`, but soft. It works with numbers like 9 or 10. For example, a vector `[9, 10]` inputted into softmax  
+would give 73.1% to 10, and 26.9% to 9. Imagine rating a burger from 1 to 10. One person rates it 9, and 
+you rate it 10. Both of you basically agree that it's a good burger. However, when we run numbers through 
+these neural networks, the numbers get huge, like 900 and 1000. If you put `[..., 900, 1000]` into softmax, you
+basically get 0 and 1. If you use these values to train a network, the network will think it has achieved 
+perfection and stop learning. You can't move 0% or 100% anymore after you reached it.  
+This is why we need to moderate this 900 or 1000 back down to something reasonable like 9 or 10 by dividing 
+by `sqrt(d)`. The `d` here represents dimension. Say we were adding up 100 numbers when calculating what softmax 
+of 900 or 1000 was. We would divide by `sqrt(100)`, which is 10, which brings the numbers down to 90 and 100, 
+which is much more reasonable than basically 0 or 1
+
