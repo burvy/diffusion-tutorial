@@ -1,6 +1,7 @@
 import math
+from collections.abc import Callable
 from functools import partial
-from typing import Callable, TypeGuard, TypeVar, cast, override
+from typing import TypeGuard, TypeVar, cast, override
 
 import torch
 import torch.nn.functional as F
@@ -10,7 +11,7 @@ from torch import nn
 
 T = TypeVar("T")
 
-def exists(x: T | None) -> TypeGuard[T]:
+def exists[T](x: T | None) -> TypeGuard[T]:
     """
     preconditions:
         - x can be any type T (unconstrained), or None
@@ -24,7 +25,7 @@ def exists(x: T | None) -> TypeGuard[T]:
     return x is not None
 
 
-def default(val: T | None, d: T | Callable[[], T]) -> T:
+def default[T](val: T | None, d: T | Callable[[], T]) -> T:
     """
     preconditions:
         - val is any type T (unconstrained) or None

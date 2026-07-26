@@ -2,6 +2,48 @@
 A diffusion model following [this](https://huggingface.co/blog/annotated-diffusion) huggingface blog post 
 written by a native Rust programmer who is being forced to write Python.
 
+# Diffusion - In a Nutshell
+In diffusion, we add noise to an image, then we ask a computer to denoise it for us. More specifically:  
+
+Forward Process: Take a real image from a real dataset, add a little Gaussian noise, repeat a few hundred times 
+until it becomes pure noise.  
+Reverse Process: Train a neural network to look at a noisy image and guess what noise was added. We can subtract the noise until the static turns back into an image that could reasonably fit in our real dataset.  
+This network is a [U-Net](https://www.geeksforgeeks.org/machine-learning/u-net-architecture-explained/).
+
+## U-Net
+From the linked article, here is a brief sumamry:  
+A U-Net is a neural network that segments an image into different parts to identify specific objects.  
+It is called a U-Net because the architecture looks like a "U"  
+
+There are three parts:  
+**CONTRACTION**: Uses 3x3 convolutional layers to shrink images by preserving important details.  
+This "Kernel" is controlled by a network itself, it is initialized as a 3x3 matrix containing random weights.  
+During training, the network adjusts these weights to look for specific details like lines, edges, colors.  
+
+This 3x3 window usually starts in the top left, 
+and slides right 1 pixel at a time (overlapping the 6 of the 9 pixels on the right of the last window).  
+For each window, the window adds all 3 numbers (after multiplying by weights) into a single pixel, 
+and puts it on a new smaller image. For a 256x256 image, 1 contraction step would only shrink the image to  
+254x254.  
+By shifting right 1 pixel only and overlapping pixels, we retain the information of how areas relate 
+to each other, which is important to neural networks.  
+
+After the convolution layer is done, a 2x2 Max Pooling layer takes the output (maybe 254x254) image and selects 
+the highest values in each 2x2 window, which turns the image into the "bigger picture", general image.  
+
+Every time the image shrinks, whether that be due to 3x3 convolutional layers or the 2x2 max pooling layer,  
+the number of channels increases. It is no longer R, G, B, (3 channels), it's R, G, B, ... some other channels 
+that are layered on top of that. It goes from 3 to 64, to 128 to 256 if the size halved in the case of the 
+max pooling layer.  
+
+**BOTTLENECK**: This isn't really a place where much goes on, it's just the middle 
+of contraction and expansion.
+
+**EXPANSION**: This is the opposite of contraction, it upsamples the small image raw, then goes over with 
+convolutional layers to add detail back into the image. During this process, the image is compared against 
+the corresponding contraction images (before contraction), trying to get close to what it was 
+
+
 # Walkthrough:
 
 We begin at the start of `model.py`.  
