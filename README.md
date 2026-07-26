@@ -206,3 +206,18 @@ by `sqrt(d)`. The `d` here represents dimension. Say we were adding up 100 numbe
 of 900 or 1000 was. We would divide by `sqrt(100)`, which is 10, which brings the numbers down to 90 and 100, 
 which is much more reasonable than basically 0 or 1
 
+## Back to Attention
+One head of attention allows a pixel to query for other pixels with the same one trait, but if we need a pixel 
+to match itself to several different traits, we need multi-head attention. For example, if we only had a single 
+head, we could maybe only focus on say, color.
+
+Imagine you were a detective matching a crime to a crime scene, and you were only allowed to investigate one 
+thing at a time. If you only look at the broken window glass on the inside, you would miss all the other details 
+like blood splatters on the wall, broken display cases, and you would not be able to solve the crime. However, 
+if you could look at all the other details, you could match the crime pretty easily.
+
+To feed these multiple heads, the computer needs Queries, Keys, Values. If you've forgotten from a block before, 
+Queries are the questions, Keys are the labels, Values are the content. This is obtained through the 
+1x1 convolution layer.
+
+## 1x1 Convolution Layer
