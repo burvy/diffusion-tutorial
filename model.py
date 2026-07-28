@@ -267,7 +267,7 @@ class ResnetBlock(nn.Module):
 
         # block1 receives conditioning
         h: torch.Tensor = cast(torch.Tensor, self.block1(x, scale_shift=scale_shift))
-        # blcok2 doesnt need conditioning
+        # block2 doesnt need conditioning
         h = cast(torch.Tensor, self.block2(h))
         # residual connection
         return h + cast(torch.Tensor, self.res_conv(x))
