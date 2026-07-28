@@ -194,17 +194,21 @@ if you input a vector of numbers, softmax them (requires the sum of the numbers 
 you will get a vector where summing everything gives you 1.
 
 ### sqrt(d)
-Before inputting into Softmax, we have to divide by a `sqrt(d)`. This comes down to what Softmax is, it is 
-`max()`, but soft. It works with numbers like 9 or 10. For example, a vector `[9, 10]` inputted into softmax  
-would give 73.1% to 10, and 26.9% to 9. Imagine rating a burger from 1 to 10. One person rates it 9, and 
-you rate it 10. Both of you basically agree that it's a good burger. However, when we run numbers through 
-these neural networks, the numbers get huge, like 900 and 1000. If you put `[..., 900, 1000]` into softmax, you
-basically get 0 and 1. If you use these values to train a network, the network will think it has achieved 
-perfection and stop learning. You can't move 0% or 100% anymore after you reached it.  
-This is why we need to moderate this 900 or 1000 back down to something reasonable like 9 or 10 by dividing 
-by `sqrt(d)`. The `d` here represents dimension. Say we were adding up 100 numbers when calculating what softmax 
-of 900 or 1000 was. We would divide by `sqrt(100)`, which is 10, which brings the numbers down to 90 and 100, 
-which is much more reasonable than basically 0 or 1
+Softmax cares about the gap between 2 numbers. `[9, 10]` and `[1, 2]` plugged into Softmax behave identically, 
+as they have the same gap.  
+If the gap plugged into Softmax is too big, say `[90, 100]` (gap of 10), it quickly saturates to 0 or 100%. 
+When a model reaches that point, it stops learning because it thinks it has reached perfection, the gradients 
+disappear.  
+A score is a sum of `d` products, statistically half positive and half negative. When they cancel, you 
+get a residual that grows roughly like `sqrt(d)`. A good analogy is a drunk person stumbling around, they 
+could go in any direction each step. When they take 100 steps from from a dropoff point because they got kicked 
+off a car they hitchhiked, they don't end up perfectly 100 steps away from their original location, it would be 
+extremely rare since they are randomly wandering, they would end up about 10 steps away from their original 
+position. Similarly, if you flip a coin 100 times, add 1 for heads, subtract 1 for tails, you get a score that 
+is about + / - 10 from 0, not 100. That would be really rare. Overall, randomness over steps will usually 
+cancel out.  
+The typical gap between 2 scores is correlated to `sqrt(d)`. If you divide by `sqrt(d)`, the gap comes back to 
+~1, which Softmax really likes.
 
 ## Back to Attention
 One head of attention allows a pixel to query for other pixels with the same one trait, but if we need a pixel 
