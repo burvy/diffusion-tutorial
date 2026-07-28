@@ -221,3 +221,11 @@ Queries are the questions, Keys are the labels, Values are the content. This is 
 1x1 convolution layer.
 
 ## 1x1 Convolution Layer
+The 1x1 convolution layer just looks at 1 pixel and mixes all its channels.  
+Imagine the image is made out of LEGOs. Each "pixel" is actually a stack of legos, with each stack 
+containing many different colors of legos, each one representing a channel. The 1x1 convolution 
+layer operates on only one of these stacks at a time, not looking at the neighboring pixels but 
+only inside the one pixel. For our case, we need 3 different views from each single pixel, 
+Queries, Keys, Values. We could process the image three times, but that would be inefficient. 
+So, we just create a giant channel mega-brick with all three views in it at once with 1 operation, 
+which can be sliced up using `.chunk(3)`.
