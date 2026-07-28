@@ -275,3 +275,34 @@ class ResnetBlock(nn.Module):
         # you can't add tensors that have different shapes, so res_conv is 1x1 that projects x from dim
         # to dim out so adding is legal
         # when dims match, it is an `nn.Identity()` a layer that returns its input untouched
+
+class Attention(nn.Module):
+    def __init__(self, dim: int, heads: int = 4, dim_head: int = 32) -> None:
+        super().__init__()
+        self.scale: float = dim_head ** -0.5 # 1 / sqrt(d), keeps softmax reasonable
+        self.heads: int = heads
+        hidden_dim: int = dim_head * heads
+        # 1x1 conv that makes q,k,v all at once
+        self.to_qkv: nn.Conv2d = nn.Conv2d(dim, hidden_dim * 3, 1, bias=False)
+        self.to_out: nn.Conv2d = nn.Conv2d(hidden_dim, dim, 1)
+
+    @override
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _b, _c, height, width = x.shape
+        qkv = cast(torch.Tensor, self.to_qkv(x)).chunk(3, dim=1)
+        # pixels become a flat list
+        q, k, v = (
+            rearrange(t, "b (h c) x y -> b h c (x y)", h=self.heads) for t in qkv
+        )
+        q *= self.scale
+
+        # d is summed away by dot product
+        # i indexes queries, j indexes keys
+        sim = torch.einsum("b h d i, b h d j -> b h i j", q, k)
+        sim -= sim.amax(dim=-1, keepdim=True).detach() # prevents overflow
+        attn = sim.softmax(dim=-1) # query rows now sum to 1
+
+        # weighted avg of values, keys are summed away
+        out = torch.einsum("b h i j, b h d j -> b h i d", attn, v)
+        out = torch.Tensor, rearrange(out, "b h (x y) d -> b (h d) x y", x=height, y=width)
+        return cast(torch.Tensor, self.to_out(out))
