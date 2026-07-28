@@ -148,7 +148,7 @@ We do FiLM right after norm because normalization just erased all the mean and s
 FiLM re-adds that scale and shift the timestep wants, and determines which features fire
 
 ## Attention
-For background, see [Convolution](#convolution).  
+For background, see [Convolution](#1x1-convolution-layer).  
 
 In this example, we are following Annotated Diffusion and denoising shirts. Locality doesn't do us favors here.  
 Imagine a shirt is coming out to be turquoise on one sleeve. It should be turquoise on the other sleeve, but the 
@@ -190,24 +190,26 @@ The [Softmax](https://www.singlestore.com/blog/a-guide-to-softmax-activation-fun
 for us.  
 It in short keeps everything positive and bounded between 0 and 1.  
 
-if you input a vector of numbers, softmax them (requires the sum of the numbers in the function itself), 
+if you input a vector of numbers, softmax them (requires the sum of the exponentials of the numbers 
+in the function itself), 
 you will get a vector where summing everything gives you 1.
 
 ### sqrt(d)
 Softmax cares about the gap between 2 numbers. `[9, 10]` and `[1, 2]` plugged into Softmax behave identically, 
 as they have the same gap.  
-If the gap plugged into Softmax is too big, say `[90, 100]` (gap of 10), it quickly saturates to 0 or 100%. 
+If the gap plugged into Softmax is too big, say `[90, 100]` (gap of 10), it quickly saturates to 0% or 100%. 
 When a model reaches that point, it stops learning because it thinks it has reached perfection, the gradients 
 disappear.  
-A score is a sum of `d` products, statistically half positive and half negative. When they cancel, you 
+A score is a sum of `d` products, where `d` is the length of each query/key vector, 
+statistically half positive and half negative. When they cancel, you 
 get a residual that grows roughly like `sqrt(d)`. A good analogy is a drunk person stumbling around, they 
-could go in any direction each step. When they take 100 steps from from a dropoff point because they got kicked 
+could go in any direction each step. When they take 100 steps from a dropoff point because they got kicked 
 off a car they hitchhiked, they don't end up perfectly 100 steps away from their original location, it would be 
 extremely rare since they are randomly wandering, they would end up about 10 steps away from their original 
 position. Similarly, if you flip a coin 100 times, add 1 for heads, subtract 1 for tails, you get a score that 
 is about + / - 10 from 0, not 100. That would be really rare. Overall, randomness over steps will usually 
 cancel out.  
-The typical gap between 2 scores is correlated to `sqrt(d)`. If you divide by `sqrt(d)`, the gap comes back to 
+The typical gap between 2 scores is `sqrt(d)`. If you divide by `sqrt(d)`, the gap comes back to 
 ~1, which Softmax really likes.
 
 ## Back to Attention
