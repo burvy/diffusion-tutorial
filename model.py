@@ -294,15 +294,25 @@ class Attention(nn.Module):
         q, k, v = (
             rearrange(t, "b (h c) x y -> b h c (x y)", h=self.heads) for t in qkv
         )
-        q *= self.scale
+        # this cannot use *= because when we cut the conv output into 3 chunks, we didn't get 3 seperate
+        # chunks, but rather 3 pointers to the start of each chunk.
+        # When we assign q like this, we point this q at a different place in memory.
+        # We don't want to scribble over the original q in the tensor, the tensor is still used for other
+        # things.
+        q = q * self.scale
 
         # d is summed away by dot product
         # i indexes queries, j indexes keys
         sim = torch.einsum("b h d i, b h d j -> b h i j", q, k)
+        # modifying sim in place using -= is safe in this case.
+        # sim is a fresh unused tensor from einsum above.
+        # just don't use in place modification on things like
+        # chunk, split, slicing, rearrange, view, etc, they're
+        # all windows into things
         sim -= sim.amax(dim=-1, keepdim=True).detach() # prevents overflow
         attn = sim.softmax(dim=-1) # query rows now sum to 1
 
         # weighted avg of values, keys are summed away
         out = torch.einsum("b h i j, b h d j -> b h i d", attn, v)
-        out = torch.Tensor, rearrange(out, "b h (x y) d -> b (h d) x y", x=height, y=width)
+        out = rearrange(out, "b h (x y) d -> b (h d) x y", x=height, y=width)
         return cast(torch.Tensor, self.to_out(out))
