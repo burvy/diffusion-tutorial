@@ -229,3 +229,39 @@ only inside the one pixel. For our case, we need 3 different views from each sin
 Queries, Keys, Values. We could process the image three times, but that would be inefficient. 
 So, we just create a giant channel mega-brick with all three views in it at once with 1 operation, 
 which can be sliced up using `.chunk(3)`.
+
+Q, K, V are made with `nn.Conv2d(dim, hidden_dim * 3, 1, bias=False)` creating one `conv` that is 
+later split into 3 with `.chunk(3, dim=1)`.
+
+# `einsum`
+`torch.einsum` is notation for multiplying and summing over 
+axes. The rules are:  
+- Same letter in 2 inputs -> axes line up
+- Letter appears in input but not output -> summed over
+- Letters in the output -> kept
+
+e.g.
+
+`torch.einsum("b h d i, b h d j -> b h i j", q, k)`
+
+`d` (dimension of the feature), is missing from the output, 
+so it is summed as the dot product. `i` and `j` are indices 
+of pixels and both survive, giving us the full pixel x pixel 
+score matrix.  
+
+This is a batched matrix multiplication.
+
+# `amax`
+`sim = sim - sim.amax(dim=-1, keepdim=True).detach()`
+
+Softmax doesn't change if you subtract a constant from each 
+score because the constant cancels in the numerator and 
+denominator. If you are not familiar with Softmax, go 
+look at [Softmax](#softmax).
+
+Subtracting the row max makes the largest exponent 
+`exp(0)`, or `1`, instead of something like `exp(50)`
+which would blow up to infinity and overflow. 
+
+The `.detach()` says that this operation should not be backpropagated, 
+because it's not part of the model.
