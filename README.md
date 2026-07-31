@@ -271,3 +271,20 @@ which would blow up to infinity and overflow.
 
 The `.detach()` says that this operation should not be backpropagated, 
 because it's not part of the model.
+
+# LinearAttention
+`Attention` has a problem. It builds `sim` with shape `(n, n)` where `n = height * width`, because 
+every pixel is scored against every other pixel. This is an issue, because imagine a 16x16 image.  
+Image Size: 16x16  
+Pixel Count (n): 256  
+Entries in `sim`: 65536  
+
+However, we can solve this blow-up by using the associative property of multiplication:  
+`(3 * 4) * 5 = 3 * (4 * 5) = 60`  
+Both equal 60, but the intermediate step is different, `3 * 4 = 12`, different from `4 * 5 = 20`.  
+In this case, 20 might be slightly easier to work with, since we can just do `3 * 2 * 10` which is 
+`6 * 10` which is 60. The same thing works with matrix multiplication, and the intermediates here 
+differ a lot from just 12 and 20.  
+
+Attention is fundamentally just 3 matrices multiplied together. Q, K, V each have shape `(n, d)`, with 
+`n` pixels and `d` features each.
