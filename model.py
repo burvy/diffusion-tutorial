@@ -208,6 +208,10 @@ class Block(nn.Module):
         """
         x = cast(torch.Tensor, self.proj(x))
         x = cast(torch.Tensor, self.norm(x))
+        # we need to add scale to 1 because the scale starts out as 0
+        # if we train against 0, the training will die immediately
+        # if we add it to 1 at the start and train from there, it
+        # will just do nothing at the beginning and slowly train
         if exists(scale_shift):
             scale, shift = scale_shift
             x = x * (scale + 1) + shift
