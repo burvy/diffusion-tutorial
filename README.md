@@ -127,15 +127,22 @@ However, in our case, it is not applicable because:
   but it only gets a running average that was computed during training when 
   it comes to evaluation
 
-GroupNorm sidesteps these issues by averaging in a single image, splitting channels across a group of channels into some groups, each group getting their own mean/stddev and computed from the values of the image.  
+GroupNorm sidesteps these issues by averaging in a single image, 
+splitting channels across a group of channels into some groups, 
+each group getting their own mean/stddev and computed from the values 
+of the image.  
 
 ## Weight Standardization
-Standard normalization normalizes the input data while weight standardization normalizes the weights  
-Before each forward pass, the convolution kernel is restandardized to 0 mean 1 variance.
+Standard normalization normalizes the input data while weight 
+standardization normalizes the weights  
+Before each forward pass, the convolution 
+kernel is restandardized to 0 mean 1 variance.
 
 The Convolution Kernel is a small matrix of weights that maps an image onto some output
 
-Anyway, weight standardization and groupnorm match or beat batchnorm without batchnorm's disadvantages, even if groupnorm usually underperforms batchnorm
+Anyway, weight standardization and groupnorm match or beat 
+batchnorm without batchnorm's disadvantages, 
+even if groupnorm usually underperforms batchnorm
 
 ## Feature wise Linear Modulation (FiLM)
 We have positional embeddings for time, but it should influence image processing by controlling the scale and shift of each channel by this:
