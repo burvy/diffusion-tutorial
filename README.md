@@ -9,7 +9,9 @@ Forward Process: Take a real image from a real dataset, add a little Gaussian no
 until it becomes pure noise.  
 Reverse Process: Train a neural network to look at a noisy image and guess what noise was added. We can subtract the noise until the static turns back into an image that could reasonably fit in our real dataset.  
 This network is a [U-Net](https://www.geeksforgeeks.org/machine-learning/u-net-architecture-explained/).  
-The U-Net takes two inputs - the noisy image at timestep `t`, and the noisy image `x_t` at timestep `t`. The network only denoises a bit at a time, it's way easier to denoise out a tiny difference from `x_t` to `x_(t-1)` than just going from `x_T` (pure noise) to `x_0` (input data).
+The U-Net takes two inputs - the timestep `t`, and the noisy image `x_t` at timestep `t`. 
+The network only denoises a bit at a time, it's way easier to denoise out a tiny difference 
+from `x_t` to `x_(t-1)` than just going from `x_T` (pure noise) to `x_0` (input data).
 
 
 ## U-Net
@@ -30,8 +32,14 @@ and puts it on a new smaller image. For a 256x256 image, 1 contraction step woul
 By shifting right 1 pixel only and overlapping pixels, we retain the information of how areas relate 
 to each other, which is important to neural networks.  
 
-After the convolution layer is done, a 2x2 Max Pooling layer takes the output (maybe 254x254) image and selects 
-the highest values in each 2x2 window, which turns the image into the "bigger picture", general image.  
+According to the generic U-Net articles,
+After the convolution layer is done, a 2x2 Max Pooling layer takes the output 
+(maybe 254x254) image and selects the highest values in each 2x2 window, which 
+turns the image into the "bigger picture", general image.  
+
+According to the code:
+We don't just blindly downscale, rather we compress 4 pixels into 1 channel, and 
+the 1x1 convolution layer learns what to keep. 
 
 Every time the image shrinks, whether that be due to 3x3 convolutional layers or the 2x2 max pooling layer,  
 the number of channels increases. It is no longer R, G, B, (3 channels), it's R, G, B, ... some other channels 
@@ -149,7 +157,11 @@ We have positional embeddings for time, but it should influence image processing
 `x = x * (scale + 1) + shift`
 scale and shift are computed from the time embedding, with 1 pair per channel, allowing the timestep to control the "weight" and "bias" of each feature, which is FiLM.
 
-we multiply by `scale + 1` instead of `scale` because `scale` can be 0.
+we multiply by `scale + 1` instead of `scale` because `scale` is 0 in the 
+default state before we train it. When we multiply `x` by 0, it just 
+kills training since all the information is gone before even getting to 
+learn anything.  
+`scale + 1` is about `1`
 
 We do FiLM right after norm because normalization just erased all the mean and scale information, because thats its job.  
 FiLM re-adds that scale and shift the timestep wants, and determines which features fire
@@ -246,7 +258,7 @@ which can be sliced up using `.chunk(3)`.
 Q, K, V are made with `nn.Conv2d(dim, hidden_dim * 3, 1, bias=False)` creating one `conv` that is 
 later split into 3 with `.chunk(3, dim=1)`.
 
-# `einsum`
+## `einsum`
 `torch.einsum` is notation for multiplying and summing over 
 axes. The rules are:  
 - Same letter in 2 inputs -> axes line up
@@ -264,7 +276,7 @@ score matrix.
 
 This is a batched matrix multiplication.
 
-# `amax`
+## `amax`
 `sim = sim - sim.amax(dim=-1, keepdim=True).detach()`
 
 Softmax doesn't change if you subtract a constant from each 
@@ -279,7 +291,7 @@ which would blow up to infinity and overflow.
 The `.detach()` says that this operation should not be backpropagated, 
 because it's not part of the model.
 
-# LinearAttention
+## LinearAttention
 `Attention` has a problem. It builds `sim` with shape `(n, n)` where `n = height * width`, because 
 every pixel is scored against every other pixel. This is an issue, because imagine a 16x16 image.  
 Image Size: 16x16  
@@ -304,11 +316,12 @@ Regular Attention computes (Q @ K^T) @ V, which causes (n, d) @ (d, n) -> (n, n)
 grows really fast and was the whole issue.  
 Linear Attention does Q @ (K^T @ V) which causes (d, n) @ (n, d) -> (32, 32), 
 the dimensions.  
+`d = dim_head = 32`  
 When you matrix multiply, for example (d, n) @ (n, d), the inner `n` disappears, 
 it is summed away. 
 
 Importantly, to define `n` and `d`, `n` can be thought of a count of contributors, 
-and `d` the output the contributors contribute into.  
+and `d` how many numbers describe each contributor.  
 When averaging 10 numbers, 10 is the `n`, and 1 is the `d`. The 10 numbers are summed and 
 divided by 10, and stored in one output. When averaging 100 numbers, 100 is the `n`, and 
 1 is still the `d`. No matter how many contributors contribute to a value, the output is 
@@ -321,7 +334,13 @@ pixel's knowledge of the rest of the image filtered through those `d`x`d` slots.
 As a result, we still must use Attention when it is affordable to do so, at the 
 deepest 7x7 layer in the U-Net.
 
-# Normalization
+Worth looking at this too:
+```python
+q = q.softmax(dim=-2) # over features: how pixels split attention during READ
+k = k.softmax(dim=-1) # over pixels: how pixels write to slots together during WRITE
+```
+
+## Normalization
 We are going back to this for reinforcement:  
 Normalization takes a pile of numbers, subtracts the mean off all of them, 
 and divides by the standard deviation, causing the pile to be centered around 0.  
@@ -345,5 +364,93 @@ is a weighted average of V rows; it cannot possibly exceed the largest value in 
 
 LinearAttention softmaxes the two inputs independently, and multiplying them together 
 doesn't give you a normalized product. However, the output is still probably well 
-behaved. Normalization is what forces the output back to being well behaved like 
+behaved, but still drifts over time with Residual being added. 
+Normalization is what forces the output back to being well behaved like 
 Attention would be.
+
+------
+NOTE:  
+You may notice we usually start with an identity, and add some residual onto 
+it frequently. For example, in FiLM, 1 + scale when scale begins at about 0, so we multiply 
+by 1. Each layer starts out doing nothing (no-op), and it learns to be useful later on.
+------
+
+## PreNorm
+PreNorm takes a copy of the data, then makes it processable for Attention. Residual is 
+added to the data that didn't get  PreNormed, not ONTO the PreNormed copy, which means 
+it shouldn't be normalized with each iteration. 
+
+PreNorm simply does this:
+```python
+return self.fn(self.norm(x))
+```
+Normalizes, then runs the function on it. It simply guarantees that the input is readable 
+before passing into the Attention function. 
+
+## Views and Copies
+In Attention and LinearAttention, you will see:  
+`q = q * self.scale`  
+We do this instead of `q *= self.scale` because `*=` does in-place mutation, which is bad 
+because q originally gave us a view into data that PyTorch is still using. We have to create 
+a new copy of the tensor with self.scale applied to it.
+
+
+# U Net
+We are finally done with everything required to construct the U Net.  
+There are a few specific things related to diffusion:  
+## Time Embeddings
+`SinusoidalPositionEmbeddings` is constructed once and injected in all layers through 
+a small MLP that encodes it on one vector. Each `ResnetBlock` `FiLM`s on it, allowing 
+this single U-Net to handle all timesteps of diffusion.  
+### `nn.Linear`
+Starting from the basics, `nn.Linear` is a layer itself. Mathematically:  
+`y=Wx+b` where `W` is the weight and `b` is the bias.  
+Each output number is a weighted sum of each input number.  
+
+Contrast this with `Conv2d`. A convolution layer sees a 3x3 neighborhood and slides 
+across an image to process images.  
+A linear layer just processes vectors with no spatial structure.
+### MLP
+MLP, or Multi-Layer Perception stacks several `Linear` layers with nonlinearity in between.  
+Running something through multiple linear layers does the same thing a single linear layer 
+could, like mixing buckets of paint, you could have always mixed paint together in one step.  
+
+However, an activation layer is placed in between the `Linear` layers which allows the 
+second layer to do something the first couldn't. Here is an example in our code:  
+`nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim_out * 2))`
+
+We will eventually use this in our U-Net like so:  
+```python
+nn.Sequential(
+    SinusoidalPositionEmbeddings(dim), # fixed formula (no learning)
+    nn.Linear(dim, time_dim), # first linear
+    nn.GELU(), # activation function to allow learning and prevent collapse
+    nn.Linear(time_dim, time_dim), # second linear
+)
+```
+We need this because the position embeddings are a hardcoded formula, but meaningless to 
+the network. This layer allows the network to learn what the position, or in our case, 
+the timestep is.
+
+## Attention
+Attention happens for every level, but the difference is `LinearAttention` is used for 
+higher resolutions (as it is faster), and normal `Attention` is used for the smallest 
+layers in the middle where precision is essential.  
+
+## Concatenation in skips
+Skips are cat, not +.
+Using + destroys the information that was there before. For example, 8 could be 
+3 + 5, 4 + 4, 6 + 2, etc.. the information on what we used is gone.  
+Concatenation stacks without mixing. Something like representing 8 using 6 + 2.  
+As a result, we might have to store some more data, which is why ResnetBlock takes 
+`dim * 2` as the input. When `dim * 2` appears in the U-Net, this is what is happening.
+
+## Symmetry
+When downsampling, the skip should match the upsampling dimensions exactly.  
+When we upsample and the dimensions aren't the same as what the skip saved, 
+the program will crash, and good that it does because we need the training 
+to be exact.
+  
+## Output
+Our network predicts noise, not an image. Output is the same shape as input, which is 
+the noise.
