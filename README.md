@@ -320,3 +320,30 @@ pixel's knowledge of the rest of the image filtered through those `d`x`d` slots.
 
 As a result, we still must use Attention when it is affordable to do so, at the 
 deepest 7x7 layer in the U-Net.
+
+# Normalization
+We are going back to this for reinforcement:  
+Normalization takes a pile of numbers, subtracts the mean off all of them, 
+and divides by the standard deviation, causing the pile to be centered around 0.  
+
+For example:  
+[10, 12, 14] - 12 => [-2, 0, 2] => divide by std => [-1.22, 0, 1.22]  
+
+This produces the same shape of the data but with standard scale.
+
+The tension is on what axis we should normalize over, and there are two options: 
+## BatchNorm
+BatchNorm creates one pile per channel, pooling across every image in a batch. 
+which causes all images to be coupled together and messy, as explained before.
+## GroupNorm -> LayerNorm
+We normalize over the other axis, chopping channels into groups and piling in 
+each single image. No image knows about any other image like BatchNorm.
+
+## Why LinearAttention needs normalization
+Attention's softmax guarantees that weights are positive and sum to 1. The output 
+is a weighted average of V rows; it cannot possibly exceed the largest value in V.  
+
+LinearAttention softmaxes the two inputs independently, and multiplying them together 
+doesn't give you a normalized product. However, the output is still probably well 
+behaved. Normalization is what forces the output back to being well behaved like 
+Attention would be.

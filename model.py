@@ -364,3 +364,20 @@ class LinearAttention(nn.Module):
             out, "b h c (x y) -> b (h c) x y", h=self.heads, x=height, y=width
         )
         return cast(torch.Tensor, self.to_out(out))
+
+class PreNorm(nn.Module):
+    """
+    PreNorm takes x, normalizes it, hands it to the fn function,
+    and returns that.
+    It allows the Attention layer to read the data without values
+    blowing up or shrinking to 0. Residual adds context back and
+    PreNorm cleans the input going in. Both make the data behave
+    """
+    def __init__(self, dim: int, fn: nn.Module) -> None:
+        super().__init__()
+        self.fn: nn.Module = fn
+        self.norm: nn.GroupNorm = nn.GroupNorm(1, dim)
+
+    @override
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return cast(torch.Tensor, self.fn(self.norm(x)))
