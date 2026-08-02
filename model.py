@@ -320,3 +320,47 @@ class Attention(nn.Module):
         out = torch.einsum("b h i j, b h d j -> b h i d", attn, v)
         out = rearrange(out, "b h (x y) d -> b (h d) x y", x=height, y=width)
         return cast(torch.Tensor, self.to_out(out))
+
+class LinearAttention(nn.Module):
+    """
+    almost a full copy of Attention but with differences
+    """
+    def __init__(self, dim: int, heads: int = 4, dim_head: int = 32) -> None:
+        super().__init__()
+        self.scale: float = dim_head ** -0.5
+        self.heads: int = heads
+        hidden_dim: int = dim_head * heads
+        self.to_qkv: nn.Conv2d = nn.Conv2d(dim, hidden_dim * 3, 1, bias=False)
+        # DIFF: GroupNorm tags along on `to_out`
+        self.to_out: nn.Sequential = nn.Sequential(
+            nn.Conv2d(hidden_dim, dim, 1),
+            nn.GroupNorm(1, dim),
+        )
+
+    @override
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _b, _c, height, width = x.shape
+        qkv = cast(torch.Tensor, self.to_qkv(x)).chunk(3, dim=1)
+        q, k, v = (
+            rearrange(t, "b (h c) x y -> b h c (x y)", h=self.heads) for t in qkv
+        )
+
+        # DIFF: Softmax the INPUTS not outputs, and on different axes
+        # Nothing to normalize as no (n, n) matrix exists
+        q = q.softmax(dim=-2) # over features: how pixels split attention during READ
+        k = k.softmax(dim=-1) # over pixels: how pixels write to slots together during WRITE
+        q = q * self.scale
+
+        # DIFF: build the "whiteboard" first (see README)
+        # n, the inner index is summed away
+        # d, e are both feature axes, (d, e) is a constant
+        context = torch.einsum("b h d n, b h e n -> b h d e", k, v)
+
+        # each pixel reads the whiteboard
+        out = torch.einsum("b h d e, b h d n -> b h e n", context, q)
+
+        # DIFF: order here is (features, pixels) not vice versa
+        out = rearrange(
+            out, "b h c (x y) -> b (h c) x y", h=self.heads, x=height, y=width
+        )
+        return cast(torch.Tensor, self.to_out(out))
