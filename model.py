@@ -413,3 +413,47 @@ class Unet(nn.Module):
             nn.GELU(),
             nn.Linear(time_dim, time_dim),
         )
+        # part 2
+
+        self.downs: nn.ModuleList = nn.ModuleList([])
+        self.ups: nn.ModuleList = nn.ModuleList([])
+        num_resolutions: int = len(in_out)
+
+        for ind, (dim_in, dim_out) in enumerate(in_out):
+            is_last = ind >= (num_resolutions - 1)
+            _ = self.downs.append(
+                nn.ModuleList([ # a list that registers its contents for PyTorch
+                    block_klass(dim_in, dim_in, time_emb_dim=time_dim),
+                    block_klass(dim_in, dim_in, time_emb_dim=time_dim),
+                    # expensive, so use cheaper LinearAttention
+                    Residual(PreNorm(dim_in, LinearAttention(dim_in))),
+                    Downsample(dim_in, dim_out)
+                    if not is_last # if not at the bottleneck
+                    else nn.Conv2d(dim_in, dim_out, 3, padding=1), # at the bottleneck
+                ])
+            )
+
+        # bottleneck that we can use normal Attention on
+        mid_dim: int = dims[-1]
+        self.mid_block1 = block_klass(mid_dim, mid_dim, time_emb_dim=time_dim)
+        self.mid_attn = Residual(PreNorm(mid_dim, Attention(mid_dim)))
+        self.mid_block2 = block_klass(mid_dim, mid_dim, time_emb_dim=time_dim)
+
+        for ind, (dim_in, dim_out) in enumerate(reversed(in_out)):
+            is_last = ind == (len(in_out) - 1)
+            _ = self.ups.append(
+                nn.ModuleList([
+                    # concatenating the dim_in skip
+                    block_klass(dim_out + dim_in, dim_out, time_emb_dim=time_dim),
+                    block_klass(dim_out + dim_in, dim_out, time_emb_dim=time_dim),
+                    Residual(PreNorm(dim_out, LinearAttention(dim_out))),
+                    Upsample(dim_out, dim_in)
+                    if not is_last
+                    else nn.Conv2d(dim_out, dim_in, 3, padding=1),
+                ])
+            )
+
+        self.out_dim: int = default(out_dim, channels)
+        # dim * 2 for the final skip
+        self.final_res_block = block_klass(dim * 2, dim, time_emb_dim=time_dim)
+        self.final_conv: nn.Conv2d = nn.Conv2d(dim, self.out_dim, 1)
