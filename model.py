@@ -381,3 +381,35 @@ class PreNorm(nn.Module):
     @override
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return cast(torch.Tensor, self.fn(self.norm(x)))
+
+class Unet(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        init_dim: int | None = None,
+        out_dim: int | None = None,
+        dim_mults: tuple[int, ...] = (1, 2, 4),
+        channels: int = 1,
+        resnet_block_groups: int = 4,
+    ) -> None:
+        super().__init__()
+
+        self.channels: int = channels
+        init_dim = default(init_dim, dim)
+        # 1x1: convert the channel to dim channels without mixing yet (see README)
+        self.init_conv: nn.Conv2d = nn.Conv2d(channels, init_dim, 1, padding=0)
+
+        # width of each level paired as (in, out) transitions (see README)
+        dims: list[int] = [init_dim, *(dim * m for m in dim_mults)]
+        in_out: list[tuple[int, int]] = list(zip(dims[:-1], dims[1:]))
+
+        # all `ResnetBlock`s wants groups = 4 so we bake it here
+        block_klass = partial(ResnetBlock, groups=resnet_block_groups)
+
+        time_dim: int = dim * 4 # the vector is huge because we can afford to do so
+        self.time_mlp: nn.Sequential = nn.Sequential(
+            SinusoidalPositionEmbeddings(dim),
+            nn.Linear(dim, time_dim),
+            nn.GELU(),
+            nn.Linear(time_dim, time_dim),
+        )

@@ -395,7 +395,7 @@ because q originally gave us a view into data that PyTorch is still using. We ha
 a new copy of the tensor with self.scale applied to it.
 
 
-# U Net
+# U-Net
 We are finally done with everything required to construct the U Net.  
 There are a few specific things related to diffusion:  
 ## Time Embeddings
@@ -454,3 +454,29 @@ to be exact.
 ## Output
 Our network predicts noise, not an image. Output is the same shape as input, which is 
 the noise.
+
+# The actual U-Net
+We can assemble everything into the actual U-Net now.
+## 1x1 Convs
+```python
+self.init_conv: nn.Conv2d = nn.Conv2d(channels, init_dim, 1, padding=0)
+```
+We are just stacking channels on a single pixel without blending things together 
+like a 3x3 convolution would. We would like to keep all the details before we run 
+a skip connection right after it.
+## `dims`, `in_out`
+We start the tensor out with a bunch of channel widths:
+```python
+dim: int, # 64
+dim_mults: tuple[int, ...] = (1, 2, 4),
+```
+We multiply those into 64, 128, 256.  
+These are the channel widths.  
+So, the tensor visits: 64 (init_conv), 64, 128, 256  
+So, we do:  
+64 -> 64 -> 128 -> 256  
+We store this as [(64, 64), (64, 128), (128, 256)]  
+
+These are like checkpoints, like if you are planning a drive home, you must stop at certain 
+places, which means you track when you transition from one place to another, not the places 
+you stop at. Just storing the checkpoints doesn't really give the direction.
