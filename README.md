@@ -277,7 +277,7 @@ because it's not part of the model.
 every pixel is scored against every other pixel. This is an issue, because imagine a 16x16 image.  
 Image Size: 16x16  
 Pixel Count (n): 256  
-Entries in `sim`: 65536  
+Entries in `sim`: 65536 (sim is the matrix of scores against each other)
 
 However, we can solve this blow-up by using the associative property of multiplication:  
 `(3 * 4) * 5 = 3 * (4 * 5) = 60`  
@@ -286,5 +286,30 @@ In this case, 20 might be slightly easier to work with, since we can just do `3 
 `6 * 10` which is 60. The same thing works with matrix multiplication, and the intermediates here 
 differ a lot from just 12 and 20.  
 
-Attention is fundamentally just 3 matrices multiplied together. Q, K, V each have shape `(n, d)`, with 
-`n` pixels and `d` features each.
+e.g.
+Regular attention is like making guests at a party get to know every other guest, and 
+for 200 guests, thats 40000 interactions. Linear attention would be like a whiteboard in the 
+corner, having everyone write their info on there, and having every guest read from that. For
+200 guests, that is 200 writes, 200 reads. 
+
+This whiteboard would be K^T @ V.  
+Regular Attention computes (Q @ K^T) @ V, which causes (n, d) @ (d, n) -> (n, n), which 
+grows really fast and was the whole issue.  
+Linear Attention does Q @ (K^T @ V) which causes (d, n) @ (n, d) -> (32, 32), 
+the dimensions.  
+When you matrix multiply, for example (d, n) @ (n, d), the inner `n` disappears, 
+it is summed away. 
+
+Importantly, to define `n` and `d`, `n` can be thought of a count of contributors, 
+and `d` the output the contributors contribute into.  
+When averaging 10 numbers, 10 is the `n`, and 1 is the `d`. The 10 numbers are summed and 
+divided by 10, and stored in one output. When averaging 100 numbers, 100 is the `n`, and 
+1 is still the `d`. No matter how many contributors contribute to a value, the output is 
+just one value. As a result, `d` never changes in size.
+
+However, this isn't exactly like Attention. This whiteboard cannot contain each 
+individual pixel's knowledge of every other pixel, but rather it contains every 
+pixel's knowledge of the rest of the image filtered through those `d`x`d` slots.  
+
+As a result, we still must use Attention when it is affordable to do so, at the 
+deepest 7x7 layer in the U-Net.
