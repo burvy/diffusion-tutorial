@@ -457,3 +457,39 @@ class Unet(nn.Module):
         # dim * 2 for the final skip
         self.final_res_block = block_klass(dim * 2, dim, time_emb_dim=time_dim)
         self.final_conv: nn.Conv2d = nn.Conv2d(dim, self.out_dim, 1)
+    @override
+    def forward(self, x: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
+        x = cast(torch.Tensor, self.init_conv(x))
+        x_0 = x.clone() # skip spans the whole network
+
+        t_embed = cast(torch.Tensor, self.time_mlp(time)) # time embeddings used everywhere
+
+        skips: list[torch.Tensor] = [] # the stack of skips
+
+        for block1, block2, attn, downsample in self.downs:  # pyright: ignore[reportGeneralTypeIssues]
+            x = block1(x, t_embed)
+            skips.append(x) # push
+
+            x = block2(x, t_embed)
+            x = attn(x)
+            skips.append(x) # push
+
+            x = downsample(x)
+
+        x = self.mid_block1(x, t_embed)
+        x = self.mid_attn(x)
+        x = self.mid_block2(x, t_embed)
+
+        for block1, block2, attn, upsample in self.ups:  # pyright: ignore[reportGeneralTypeIssues]
+            x = torch.cat((x, skips.pop()), dim=1) # pop
+            x = block1(x, t_embed)
+
+            x = torch.cat((x, skips.pop()), dim=1) # pop
+            x = block2(x, t_embed)
+            x = attn(x)
+
+            x = upsample(x)
+
+        x = torch.cat((x, x_0), dim=1) # the network-spanning skip
+        x = self.final_res_block(x, t_embed)
+        return cast(torch.Tensor, self.final_conv(x))
