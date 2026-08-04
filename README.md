@@ -480,3 +480,5 @@ We store this as [(64, 64), (64, 128), (128, 256)]
 These are like checkpoints, like if you are planning a drive home, you must stop at certain 
 places, which means you track when you transition from one place to another, not the places 
 you stop at. Just storing the checkpoints doesn't really give the direction.
+
+## Linear Beta Schedule
