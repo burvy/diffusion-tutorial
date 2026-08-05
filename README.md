@@ -26,7 +26,7 @@ During training, the network adjusts these weights to look for specific details 
 
 This 3x3 window usually starts in the top left, 
 and slides right 1 pixel at a time (overlapping the 6 of the 9 pixels on the right of the last window).  
-For each window, the window adds all 3 numbers (after multiplying by weights) into a single pixel, 
+For each window, the window adds all 9 numbers (after multiplying by weights) into a single pixel, 
 and puts it on a new smaller image. For a 256x256 image, 1 contraction step would only shrink the image to  
 254x254.  
 By shifting right 1 pixel only and overlapping pixels, we retain the information of how areas relate 
@@ -38,7 +38,7 @@ After the convolution layer is done, a 2x2 Max Pooling layer takes the output
 turns the image into the "bigger picture", general image.  
 
 According to the code:
-We don't just blindly downscale, rather we compress 4 pixels into 1 channel, and 
+We don't just blindly downscale, rather we move 4 pixels into 1 channel, and 
 the 1x1 convolution layer learns what to keep. 
 
 Every time the image shrinks, whether that be due to 3x3 convolutional layers or the 2x2 max pooling layer,  
@@ -46,8 +46,12 @@ the number of channels increases. It is no longer R, G, B, (3 channels), it's R,
 that are layered on top of that. It goes from 3 to 64, to 128 to 256 if the size halved in the case of the 
 max pooling layer.  
 
-**BOTTLENECK**: This isn't really a place where much goes on, it's just the middle 
-of contraction and expansion.
+**BOTTLENECK**: Real Attention runs here. Because the network can run 
+full Attention, with each pixel being able to communicate with all other 
+pixels, and it being affordable because the image is the smallest here. This 
+allows the network to decide what the image is, for example, looking at a 
+clothing database, it allows the network to determine whether it is a shoe, 
+a shirt, a sweater, whatever. 
 
 **EXPANSION**: This is the opposite of contraction, it upsamples the small image raw, then goes over with 
 convolutional layers to add detail back into the image. During this process, the image is compared against 
@@ -167,7 +171,7 @@ We do FiLM right after norm because normalization just erased all the mean and s
 FiLM re-adds that scale and shift the timestep wants, and determines which features fire
 
 ## Attention
-For background, see [Convolution](#1x1-convolution-layer).  
+For background, see [Convolution](#convolution).  
 
 In this example, we are following Annotated Diffusion and denoising shirts. Locality doesn't do us favors here.  
 Imagine a shirt is coming out to be turquoise on one sleeve. It should be turquoise on the other sleeve, but the 
@@ -363,10 +367,10 @@ Attention's softmax guarantees that weights are positive and sum to 1. The outpu
 is a weighted average of V rows; it cannot possibly exceed the largest value in V.  
 
 LinearAttention softmaxes the two inputs independently, and multiplying them together 
-doesn't give you a normalized product. However, the output is still probably well 
-behaved, but still drifts over time with Residual being added. 
-Normalization is what forces the output back to being well behaved like 
-Attention would be.
+doesn't give you a normalized product. However, the output is still 
+approximately behaved, but still drifts over time with Residual 
+being added. Normalization is what forces the output back to being well 
+behaved like Attention would be.
 
 ------
 NOTE:  
@@ -376,8 +380,9 @@ by 1. Each layer starts out doing nothing (no-op), and it learns to be useful la
 ------
 
 ## PreNorm
-PreNorm takes a copy of the data, then makes it processable for Attention. Residual is 
-added to the data that didn't get  PreNormed, not ONTO the PreNormed copy, which means 
+PreNorm takes a copy of the data, then makes it processable 
+for Attention. Residual is added to the data that didn't get 
+PreNormed, not ONTO the PreNormed copy, which means 
 it shouldn't be normalized with each iteration. 
 
 PreNorm simply does this:
@@ -411,15 +416,13 @@ Contrast this with `Conv2d`. A convolution layer sees a 3x3 neighborhood and sli
 across an image to process images.  
 A linear layer just processes vectors with no spatial structure.
 ### MLP
-MLP, or Multi-Layer Perception stacks several `Linear` layers with nonlinearity in between.  
+MLP, or Multi-Layer Perceptron stacks several `Linear` layers with nonlinearity in between.  
 Running something through multiple linear layers does the same thing a single linear layer 
 could, like mixing buckets of paint, you could have always mixed paint together in one step.  
 
 However, an activation layer is placed in between the `Linear` layers which allows the 
 second layer to do something the first couldn't. Here is an example in our code:  
-`nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim_out * 2))`
 
-We will eventually use this in our U-Net like so:  
 ```python
 nn.Sequential(
     SinusoidalPositionEmbeddings(dim), # fixed formula (no learning)
@@ -442,14 +445,17 @@ Skips are cat, not +.
 Using + destroys the information that was there before. For example, 8 could be 
 3 + 5, 4 + 4, 6 + 2, etc.. the information on what we used is gone.  
 Concatenation stacks without mixing. Something like representing 8 using 6 + 2.  
-As a result, we might have to store some more data, which is why ResnetBlock takes 
-`dim * 2` as the input. When `dim * 2` appears in the U-Net, this is what is happening.
+As a result, we might have to store some more data, 
+which is why the final Resnet block takes 
+`dim * 2` as the input. When `dim * 2` appears in the U-Net, 
+this is what is happening.
 
 ## Symmetry
 When downsampling, the skip should match the upsampling dimensions exactly.  
 When we upsample and the dimensions aren't the same as what the skip saved, 
 the program will crash, and good that it does because we need the training 
-to be exact.
+to be exact. Though, it is due to the fact that `torch.cat` cannot 
+concatenate two differently sized tensors.
   
 ## Output
 Our network predicts noise, not an image. Output is the same shape as input, which is 
@@ -482,3 +488,7 @@ places, which means you track when you transition from one place to another, not
 you stop at. Just storing the checkpoints doesn't really give the direction.
 
 ## Linear Beta Schedule
+Noising adds a bit of noise to an existing image. Beta is how much noise is added at timestep `t`.  
+This is defined in `linear_beta_schedule`.   
+Alpha is then the flip of Beta, (1 - Beta). Alpha-bar, the cumulative product, 
+tells how much of the original image is left.
