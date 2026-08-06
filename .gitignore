@@ -15,3 +15,9 @@ data/
 
 # Model
 model.pt
+
+# Training outputs
+forward_process.png
+reverse_process.png
+samples.png
+reverse.gif
