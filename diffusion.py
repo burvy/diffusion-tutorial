@@ -16,9 +16,15 @@ betas = linear_beta_schedule(TIMESTEPS)
 alphas = 1.0 - betas # signal surviving ONE step
 # ... all steps up to t
 alphas_cumprod = torch.cumprod(alphas, dim=0)
+# define alphas
+alphas = 1. - betas
+alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
 
 sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
-sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - alphas_cumprod)
+sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
+
+posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 def extract(
     a: torch.Tensor,
@@ -85,3 +91,36 @@ def p_losses(
         # as l2
         case "huber": # l2 if small, l1 if large
             return F.smooth_l1_loss(noise, predicted_noise)
+
+@torch.no_grad() # nothing is training
+def p_sample(
+    model: nn.Module,
+    x: torch.Tensor,
+    t: torch.Tensor,
+    t_index: int
+) -> torch.Tensor:
+    """
+    Produce x_{t-1} from x_t
+    Then add jitter/noise
+    We have to add noise or else the sample becomes, say, the mean of
+    all boots, instead of a specific boot looking thing. We dont want a
+    blob that looks like the mean of all boots
+    """
+    betas_t = extract(betas, t, x.shape)
+    sqrt_one_minus_alphas_cumprod_t = extract(
+        sqrt_one_minus_alphas_cumprod, t, x.shape
+    )
+    sqrt_recip_alphas_t = extract(sqrt_recip_alphas, t, x.shape)
+
+    # where our model predicts x_{t-1} is
+    model_mean = sqrt_recip_alphas_t * (
+        x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+    )
+
+    if t_index == 0:
+        return model_mean
+    else:
+        posterior_variance_t = extract(posterior_variance, t, x.shape)
+        noise = torch.randn_like(x)
+
+        return model_mean + torch.sqrt(posterior_variance_t) * noise

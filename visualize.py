@@ -10,7 +10,7 @@ def to_image(x: torch.Tensor) -> torch.Tensor:
     return ((x + 1) / 2).squeeze().clamp(0, 1)
 
 
-x_start = train_set[0][0]                    # one garment, already in [-1, 1]
+x_start = train_set[1][0]                    # one garment, already in [-1, 1]
 steps = [0, 25, 50, 100, 150, 200, 250, 299]
 
 fig, axes = plt.subplots(1, len(steps), figsize=(2 * len(steps), 2.5))
