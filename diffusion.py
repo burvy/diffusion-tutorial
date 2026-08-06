@@ -30,7 +30,7 @@ def extract(
     """
     batch_size = t.shape[0]
     # a.gather(-1, [12, 250, 3, 199]) -> [a[12], a[250], a[3], a[199]]
-    output = a.gather(-1, t)
+    output = a.to(t.device).gather(-1, t)
     # adds padding 1s to the end of the [4,] tensor to make it processable
     return output.reshape(batch_size, *((1,) * (len(x_shape) - 1)))
 
