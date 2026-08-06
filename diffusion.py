@@ -16,8 +16,6 @@ betas = linear_beta_schedule(TIMESTEPS)
 alphas = 1.0 - betas # signal surviving ONE step
 # ... all steps up to t
 alphas_cumprod = torch.cumprod(alphas, dim=0)
-# define alphas
-alphas = 1. - betas
 alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
 sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
 
@@ -113,6 +111,9 @@ def p_sample(
     # where x_{t-1} most likely sits according to the model
     # we dont subtract the whole predicted noise, rather
     # `betas_t` / sqrt_one_minus_ab_t of it
+    # this is so high timestep errors dont affect the output
+    # as much as low timestep errors where the image is already
+    # coming out
     model_mean = sqrt_recip_alphas_t * (
         x - betas_t * model(x, t) / sqrt_one_minus_ab_t
     )
@@ -122,3 +123,35 @@ def p_sample(
     posterior_variance_t = extract(posterior_variance, t, x.shape)
     # random noise is added back in
     return model_mean + torch.sqrt(posterior_variance_t) * torch.randn_like(x)
+
+@torch.no_grad()
+def p_sample_loop(
+    model: nn.Module,
+    shape: tuple[int, ...]
+) -> list[torch.Tensor]:
+    """
+    starting from static and going back to 0 so we can visualize the
+    process
+    """
+    device = next(model.parameters()).device
+    img = torch.randn(shape, device=device) # pure, new noise
+    imgs: list[torch.Tensor] = []
+
+    for i in reversed(range(TIMESTEPS)): # 299, 298 ... 0
+        # each image is on the same timestep
+        # when training, each image had its own
+        t = torch.full((shape[0],), i, device=device, dtype=torch.long)
+        img = p_sample(model, img, t, i)
+        imgs.append(img.cpu())
+
+    return imgs
+
+
+@torch.no_grad()
+def sample(
+    model: nn.Module,
+    image_size: int,
+    batch_size: int = 16,
+    channels: int = 1
+) -> list[torch.Tensor]:
+    return p_sample_loop(model, (batch_size, channels, image_size, image_size))

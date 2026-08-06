@@ -12,3 +12,6 @@ uv.lock
 
 # Training data
 data/
+
+# Model
+model.pt

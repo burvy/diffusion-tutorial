@@ -28,5 +28,5 @@ for epoch in range(EPOCHS):
         if step % 100 == 0:
             print(f"epoch {epoch}  step {step:>4}  loss {loss.item():.4f}")
 
-torch.save(model.state_dict(), "model.pt")
-print("saved model.pt")
+    torch.save(model.state_dict(), "model.pt")
+    print(f"epoch {epoch} done, saved model.pt")
