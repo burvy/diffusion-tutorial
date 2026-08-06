@@ -107,20 +107,18 @@ def p_sample(
     blob that looks like the mean of all boots
     """
     betas_t = extract(betas, t, x.shape)
-    sqrt_one_minus_alphas_cumprod_t = extract(
-        sqrt_one_minus_alphas_cumprod, t, x.shape
-    )
+    sqrt_one_minus_ab_t = extract(sqrt_one_minus_alphas_cumprod, t, x.shape)
     sqrt_recip_alphas_t = extract(sqrt_recip_alphas, t, x.shape)
 
-    # where our model predicts x_{t-1} is
+    # where x_{t-1} most likely sits according to the model
+    # we dont subtract the whole predicted noise, rather
+    # `betas_t` / sqrt_one_minus_ab_t of it
     model_mean = sqrt_recip_alphas_t * (
-        x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+        x - betas_t * model(x, t) / sqrt_one_minus_ab_t
     )
 
     if t_index == 0:
         return model_mean
-    else:
-        posterior_variance_t = extract(posterior_variance, t, x.shape)
-        noise = torch.randn_like(x)
-
-        return model_mean + torch.sqrt(posterior_variance_t) * noise
+    posterior_variance_t = extract(posterior_variance, t, x.shape)
+    # random noise is added back in
+    return model_mean + torch.sqrt(posterior_variance_t) * torch.randn_like(x)
