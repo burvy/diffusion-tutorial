@@ -51,4 +51,4 @@ def q_sample(
     sqrt_1mab = extract(sqrt_one_minus_alphas_cumprod, t, x_start.shape)
 
     return sqrt_ab * x_start + sqrt_1mab * noise
-    
+
