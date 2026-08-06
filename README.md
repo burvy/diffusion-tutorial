@@ -502,8 +502,8 @@ Alpha is then the flip of Beta, (1 - Beta). Alpha-bar, the cumulative product,
 tells how much of the original image is left.
 
 ## `extract`
-Extracts the size of timesteps and pads them with 1 for the `a` input tensor 
-to allow it to be multiplied easily
+Extracts the size of timesteps and pads them with 1 for the `x_shape` input 
+tensor to allow it to be multiplied easily
 
 ## `q_sample`
 ![Closed form derivation of the forward process](image.png)
