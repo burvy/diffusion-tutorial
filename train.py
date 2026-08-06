@@ -29,7 +29,7 @@ for epoch in range(EPOCHS):
         optimizer.step()
 
         running += loss.item()
-        if step % 100 == 0:
+        if step % 1 == 0:
             print(f"epoch {epoch}  step {step:>4}  loss {loss.item():.4f}")
         scheduler.step()
     print(f"epoch {epoch} done  mean loss {running / len(dataloader):.4f}, saved model.pt")
