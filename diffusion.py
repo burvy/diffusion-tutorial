@@ -37,6 +37,12 @@ def q_sample(
 ) -> torch.Tensor:
     """
     closed form derivation of the forward process for noising
+
+    Note that running q_sample on the same image twice will yield a different
+    result, since `torch.randn_like` draws a random number each time.
+    This is important since one image produces infinite free training.
+
+    If you want, you can fix the noise for testing using the noise parameter
     """
     if noise is None:
         noise = torch.randn_like(x_start)
@@ -45,3 +51,4 @@ def q_sample(
     sqrt_1mab = extract(sqrt_one_minus_alphas_cumprod, t, x_start.shape)
 
     return sqrt_ab * x_start + sqrt_1mab * noise
+    
