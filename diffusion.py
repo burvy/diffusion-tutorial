@@ -37,7 +37,6 @@ def q_sample(
 ) -> torch.Tensor:
     """
     closed form derivation of the forward process for noising
-
     """
     if noise is None:
         noise = torch.randn_like(x_start)
