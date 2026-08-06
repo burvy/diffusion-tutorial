@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-TIMESTEPS = 300
+TIMESTEPS = 1000
 
 def linear_beta_schedule(timesteps: int) -> torch.Tensor:
     """

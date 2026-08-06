@@ -2,6 +2,12 @@
 A diffusion model following [this](https://huggingface.co/blog/annotated-diffusion) huggingface blog post 
 written by a native Rust programmer who is being forced to write Python.
 
+To train:
+`.venv/Scripts/python.exe train.py`
+
+To sample:
+`.venv/Scripts/python.exe sample_images.py`
+
 # Diffusion - In a Nutshell
 In diffusion, we add noise to an image, then we ask a computer to denoise it for us. More specifically:  
 
