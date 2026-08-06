@@ -1,4 +1,8 @@
+from typing import Literal
+
 import torch
+import torch.nn.functional as F
+from torch import nn
 
 TIMESTEPS = 300
 
@@ -52,3 +56,32 @@ def q_sample(
 
     return sqrt_ab * x_start + sqrt_1mab * noise
 
+
+def p_losses(
+    denoise_model: nn.Module,
+    x_start: torch.Tensor,
+    t: torch.Tensor,
+    noise: torch.Tensor | None = None,
+    loss_type: Literal["l1", "l2", "huber"] = "huber",
+) -> torch.Tensor:
+    """
+    Loss in one training step,
+    model predicts noise, compare against known answer
+    """
+    if noise is None:
+        noise = torch.randn_like(x_start)
+
+    x_noisy = q_sample(x_start=x_start, t=t, noise=noise)
+    predicted_noise = denoise_model(x_noisy, t)
+
+    match loss_type:
+        # same flat correction with any error size
+        case "l1": # absolute value of error
+            return F.l1_loss(noise, predicted_noise)
+        # SCREAMS at big errors
+        case "l2": # squares the error
+            return F.mse_loss(noise, predicted_noise)
+        # quieter as the error is smaller, one large error wont affect as much
+        # as l2
+        case "huber": # l2 if small, l1 if large
+            return F.smooth_l1_loss(noise, predicted_noise)
