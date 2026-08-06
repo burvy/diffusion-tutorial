@@ -38,8 +38,8 @@ After the convolution layer is done, a 2x2 Max Pooling layer takes the output
 turns the image into the "bigger picture", general image.  
 
 According to the code:
-We don't just blindly downscale, rather we move 4 pixels into 1 channel, and 
-the 1x1 convolution layer learns what to keep. 
+We don't just blindly downscale, rather we move 4 pixels into 4x the channels, 
+and the 1x1 convolution layer learns what to keep. 
 
 Every time the image shrinks, whether that be due to 3x3 convolutional layers or the 2x2 max pooling layer,  
 the number of channels increases. It is no longer R, G, B, (3 channels), it's R, G, B, ... some other channels 
@@ -340,9 +340,17 @@ deepest 7x7 layer in the U-Net.
 
 Worth looking at this too:
 ```python
-q = q.softmax(dim=-2) # over features: how pixels split attention during READ
-k = k.softmax(dim=-1) # over pixels: how pixels write to slots together during WRITE
+q = q.softmax(dim=-2) # over features: how pixels read together
+k = k.softmax(dim=-1) # over pixels: how pixels write together
 ```
+LinearAttention softmaxes both inputs rather than the output score matrix, 
+across different axes. `k` is softmaxed across pixels, defining how pixels 
+share the right to write into each slot in the whiteboard, and `q` over 
+features, how each pixel splits its attention reading the board. It's still 
+a weighted average, but because the whiteboard is still fundamentaly `d`x`d` 
+pixels, it cannot represent per-pair attention the way full, real attention 
+can.
+
 
 ## Normalization
 We are going back to this for reinforcement:  
@@ -366,11 +374,11 @@ each single image. No image knows about any other image like BatchNorm.
 Attention's softmax guarantees that weights are positive and sum to 1. The output 
 is a weighted average of V rows; it cannot possibly exceed the largest value in V.  
 
-LinearAttention softmaxes the two inputs independently, and multiplying them together 
-doesn't give you a normalized product. However, the output is still 
-approximately behaved, but still drifts over time with Residual 
-being added. Normalization is what forces the output back to being well 
-behaved like Attention would be.
+LinearAttention softmaxes the two inputs independently, and multiplying them 
+together However, the output still stays within V's range. 
+Both softmaxes give weighted averages, and the issue is 
+that taking the average of an average makes the output tiny, requiring 
+GroupNorm to restore the scale for us. 
 
 ------
 NOTE:  
@@ -381,10 +389,9 @@ by 1. Each layer starts out doing nothing (no-op), and it learns to be useful la
 
 ## PreNorm
 PreNorm takes a copy of the data, then makes it processable 
-for Attention. Residual is added to the data that didn't get 
-PreNormed, not ONTO the PreNormed copy, which means 
-it shouldn't be normalized with each iteration. 
-
+for Attention. Residual holds the original image, allowing 
+`fn` to do work on a normalized copy, and the original is added 
+back at the end through `fn(x) + x`
 PreNorm simply does this:
 ```python
 return self.fn(self.norm(x))
@@ -396,8 +403,9 @@ before passing into the Attention function.
 In Attention and LinearAttention, you will see:  
 `q = q * self.scale`  
 We do this instead of `q *= self.scale` because `*=` does in-place mutation, which is bad 
-because q originally gave us a view into data that PyTorch is still using. We have to create 
-a new copy of the tensor with self.scale applied to it.
+because `q` originally gave us a view into data that PyTorch is still using. 
+We have to create a new tensor. That is what `q` is assigned to. We shadow 
+the original `q`.
 
 
 # U-Net
